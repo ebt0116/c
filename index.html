@@ -8,11 +8,13 @@
   :root {
     --seam: 3vw;                  /* 正中央的縫 */
     --edge: 1vw;                  /* 左右外側留白 */
-    --top: 1.2vh;                 /* 頂端留白 */
     --col: min(2.8vw, 4.6vh);     /* 基準尺寸，所有字級都以它為準 */
+    --tsize: calc(var(--col) * 2.1);      /* 時間字級 */
+    --top: calc(var(--tsize) * 0.12);     /* 頂端留白 = 時間字級的 12% */
     --rtop: var(--top);           /* 右半邊額外的上方留白（右邊總共是左邊的兩倍） */
     --stroke: 0.015em;            /* 中文加粗描邊 */
-    --dx: 0px; --dy: 0px;         /* 防殘影位移，由 JS 改 */
+    --px: 1px;                    /* 一個裝置像素，由 JS 設定 */
+    --mx: 0px;                    /* 棋盤格錯位，由 JS 每分鐘切換 */
   }
   html, body {
     margin: 0; height: 100%;
@@ -30,7 +32,6 @@
     grid-template-columns: minmax(0, 1fr) var(--seam) minmax(0, 1fr);  /* 兩邊強制等寬，縫固定在中線 */
     align-items: start;                     /* 全部貼齊頂端 */
     overflow: hidden;
-    transform: translate(var(--dx), var(--dy));
   }
   #clock div, #clock b, #clock i {
     white-space: nowrap;
@@ -47,7 +48,7 @@
   #left  { display: flex; gap: calc(var(--col) * 0.8); align-items: stretch;
            padding-left: var(--edge); min-width: 0; }
   #tw    { display: flex; flex-direction: column; gap: calc(var(--col) * 0.3); }
-  #time  { font-size: calc(var(--col) * 2.1); line-height: 1; font-variant-numeric: tabular-nums; }
+  #time  { font-size: var(--tsize); line-height: 1; font-variant-numeric: tabular-nums; }
   #mid   { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; }
   #top   { display: flex; align-items: center; gap: calc(var(--col) * 0.4); }
   #date  { font-size: calc(var(--col) * 0.9); line-height: 1; }
@@ -65,6 +66,13 @@
   #count   { font-size: calc(var(--col) * 1.91); line-height: 1; }
   #recruit { display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--col) * 0.3);
              font-size: calc(var(--col) * 0.9); line-height: 1; }
+
+  /* 防殘影：1px 棋盤格遮罩，每分鐘黑白交替 */
+  #mask { position: fixed; top: 0; left: 0; width: 100%; height: calc(100vh / 6);
+          pointer-events: none;
+          background-image: repeating-conic-gradient(#000 0 25%, transparent 0 50%);
+          background-size: calc(var(--px) * 2) calc(var(--px) * 2);
+          background-position: var(--mx) 0; }
 </style>
 </head>
 <body>
@@ -88,6 +96,7 @@
       <div id="recruit"><div class="zh">國軍人才招募專線</div><div>0800-000-050</div></div>
     </div>
   </div>
+  <div id="mask"></div>
 
 <script>
   const EXAM = new Date(2027, 0, 22);   // 116 學測第一天
@@ -163,13 +172,15 @@
   tick();
   setInterval(tick, 1000);
 
-  // 防殘影：每 3 分鐘隨機位移 ±2px
-  function shift() {
-    const r = () => Math.round(Math.random() * 4 - 2) + 'px';
-    document.documentElement.style.setProperty('--dx', r());
-    document.documentElement.style.setProperty('--dy', r());
+  // 防殘影：棋盤格每分鐘錯開 1 個裝置像素，每個像素輪流亮暗
+  function checker() {
+    const px = 1 / window.devicePixelRatio;
+    const odd = Math.floor(Date.now() / 60000) % 2;
+    document.documentElement.style.setProperty('--px', px + 'px');
+    document.documentElement.style.setProperty('--mx', (odd ? px : 0) + 'px');
   }
-  setInterval(shift, 180000);
+  checker();
+  setInterval(checker, 1000);
 
   // 點擊畫面或按 F 切換全螢幕
   function toggleFS() {
