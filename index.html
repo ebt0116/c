@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>時鐘</title>
+<style>
+  :root {
+    --seam: 3vw;                  /* 正中央的縫 */
+    --edge: 1vw;                  /* 左右外側留白 */
+    --top: 1.2vh;                 /* 頂端留白 */
+    --col: min(2.8vw, 4.6vh);     /* 基準尺寸，所有字級都以它為準 */
+    --rtop: var(--top);           /* 右半邊額外的上方留白（右邊總共是左邊的兩倍） */
+    --stroke: 0.015em;            /* 中文加粗描邊 */
+    --dx: 0px; --dy: 0px;         /* 防殘影位移，由 JS 改 */
+  }
+  html, body {
+    margin: 0; height: 100%;
+    background: #000;
+    color: #ddd;
+    font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    overflow: hidden;
+  }
+  #clock {
+    position: fixed; top: 0; left: 0;
+    width: 100%; height: calc(100vh / 6);   /* 上方六分之一 */
+    box-sizing: border-box;
+    padding-top: var(--top);
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--seam) minmax(0, 1fr);  /* 兩邊強制等寬，縫固定在中線 */
+    align-items: start;                     /* 全部貼齊頂端 */
+    overflow: hidden;
+    transform: translate(var(--dx), var(--dy));
+  }
+  #clock div, #clock b, #clock i {
+    white-space: nowrap;
+    font-weight: 700;
+    text-box: trim-both cap alphabetic;     /* 切掉字上下多餘空白，邊緣才會齊 */
+  }
+  .zh { -webkit-text-stroke: var(--stroke) currentColor; }   /* 只有中文加粗 */
+
+  /* 進度條 */
+  .bar        { height: calc(var(--col) * 0.14); background: #333; border-radius: 99px; overflow: hidden; }
+  .bar > span { display: block; height: 100%; width: 0; background: #ddd; border-radius: 99px; }
+
+  /* 左半：時間 + 日期課表 */
+  #left  { display: flex; gap: calc(var(--col) * 0.8); align-items: stretch;
+           padding-left: var(--edge); min-width: 0; }
+  #tw    { display: flex; flex-direction: column; gap: calc(var(--col) * 0.3); }
+  #time  { font-size: calc(var(--col) * 2.1); line-height: 1; font-variant-numeric: tabular-nums; }
+  #mid   { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; }
+  #top   { display: flex; align-items: center; gap: calc(var(--col) * 0.4); }
+  #date  { font-size: calc(var(--col) * 0.9); line-height: 1; }
+  #pbar  { flex: 1; }
+  #sched { display: flex; justify-content: space-between; }   /* 左右切齊、空隙自適應 */
+  .cls   { display: flex; align-items: flex-end; color: #666; }
+  .cls.now { color: #fff; }
+  .cls b { font-size: calc(var(--col) * 0.9);  line-height: 1; }
+  .cls i { font-size: calc(var(--col) * 0.41); line-height: 1; font-style: normal; }
+  .off   { font-size: calc(var(--col) * 0.9); line-height: 1; color: #666; }
+
+  /* 右半：倒數 + 招募專線 */
+  #right   { display: flex; justify-content: space-between; align-items: flex-start;
+             padding-top: var(--rtop); padding-right: var(--edge); min-width: 0; }
+  #count   { font-size: calc(var(--col) * 1.91); line-height: 1; }
+  #recruit { display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--col) * 0.3);
+             font-size: calc(var(--col) * 0.9); line-height: 1; }
+</style>
+</head>
+<body>
+  <div id="clock">
+    <div id="left">
+      <div id="tw">
+        <div id="time"></div>
+        <div class="bar"><span id="mfill"></span></div>
+      </div>
+      <div id="mid">
+        <div id="top">
+          <div id="date"></div>
+          <div id="pbar" class="bar"><span id="pfill"></span></div>
+        </div>
+        <div id="sched"></div>
+      </div>
+    </div>
+    <div></div>
+    <div id="right">
+      <div id="count"></div>
+      <div id="recruit"><div class="zh">國軍人才招募專線</div><div>0800-000-050</div></div>
+    </div>
+  </div>
+
+<script>
+  const EXAM = new Date(2027, 0, 22);   // 116 學測第一天
+
+  // 課表：0=週日 … 6=週六
+  const SCHEDULE = {
+    1: ['國文','英文','補強','補強','化學','化學','數學','物理'],
+    2: ['物理','物理','國文','選修','數學','數學','體育','化學'],
+    3: ['地理','數學','英文','化學','國防','國文','國文','物理'],
+    4: ['英文','物理','地科','化學','表藝','數學','國文','英文'],
+    5: ['體育','數學','英文','英文','國文','物理','物理'],
+  };
+
+  // 每節開始時間，每節 50 分鐘
+  const STARTS = ['8:00','9:00','10:10','11:10','13:10','14:10','15:10','16:10'];
+  const LEN = 50;
+
+  // 建立時間軸：上課段 + 下課段（午休 30+30+10，其餘每 10 分鐘一段）
+  const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+  const SEGMENTS = [];
+  STARTS.forEach((t, i) => {
+    const s = toMin(t);
+    SEGMENTS.push({ start: s, end: s + LEN, period: i });
+    if (i + 1 < STARTS.length) {
+      let g = s + LEN;
+      const next = toMin(STARTS[i + 1]);
+      const parts = (next - g === 70) ? [30, 30, 10] : Array((next - g) / 10).fill(10);
+      parts.forEach(p => { SEGMENTS.push({ start: g, end: g + p, period: -1 }); g += p; });
+    }
+  });
+
+  const pad = n => String(n).padStart(2, '0');
+  const days = ['日','一','二','三','四','五','六'];
+  const $ = id => document.getElementById(id);
+  // 把中文字包起來加粗，數字和符號不動
+  const zh = s => s.replace(/[㐀-鿿豈-﫿]+/g, m => `<span class="zh">${m}</span>`);
+  let lastDay = -1, lastPeriod = -2;
+
+  function renderSched(dow, period) {
+    const s = SCHEDULE[dow];
+    $('sched').innerHTML = s
+      ? s.map((c, i) => `<div class="cls zh${i === period ? ' now' : ''}"><b>${c[0]}</b><i>${c[1]}</i></div>`).join('')
+      : '<div class="off zh">假日</div>';
+  }
+
+  function tick() {
+    const d = new Date();
+    const dow = d.getDay();
+
+    $('time').textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    $('date').innerHTML = zh(`${d.getMonth()+1}月${d.getDate()}日 星期${days[dow]}`);
+
+    // 這分鐘的進度
+    $('mfill').style.width = (d.getSeconds() / 60 * 100) + '%';
+
+    // 上下課進度
+    const now = d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+    const seg = SCHEDULE[dow] ? SEGMENTS.find(x => now >= x.start && now < x.end) : null;
+    $('pfill').style.width = seg ? ((now - seg.start) / (seg.end - seg.start) * 100) + '%' : '0';
+
+    // 課表（只在換日或換節時重繪）
+    const period = seg ? seg.period : -1;
+    if (dow !== lastDay || period !== lastPeriod) {
+      renderSched(dow, period);
+      lastDay = dow; lastPeriod = period;
+    }
+
+    // 學測倒數（不算當天）
+    const today = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const left = Math.round((EXAM - today) / 86400000) - 1;
+    $('count').innerHTML = left > 0 ? zh(`倒數${left}天`) : '';
+  }
+  tick();
+  setInterval(tick, 1000);
+
+  // 防殘影：每 3 分鐘隨機位移 ±2px
+  function shift() {
+    const r = () => Math.round(Math.random() * 4 - 2) + 'px';
+    document.documentElement.style.setProperty('--dx', r());
+    document.documentElement.style.setProperty('--dy', r());
+  }
+  setInterval(shift, 180000);
+
+  // 點擊畫面或按 F 切換全螢幕
+  function toggleFS() {
+    document.fullscreenElement ? document.exitFullscreen()
+                               : document.documentElement.requestFullscreen();
+  }
+  document.addEventListener('click', toggleFS);
+  document.addEventListener('keydown', e => { if (e.key.toLowerCase() === 'f') toggleFS(); });
+</script>
+</body>
+</html>
