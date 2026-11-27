@@ -13,8 +13,6 @@
     --top: calc(var(--tsize) * 0.12);     /* 頂端留白 = 時間字級的 12% */
     --rtop: var(--top);           /* 右半邊額外的上方留白（右邊總共是左邊的兩倍） */
     --stroke: 0.015em;            /* 中文加粗描邊 */
-    --px: 1px;                    /* 一個裝置像素，由 JS 設定 */
-    --mx: 0px; --my: 0px;         /* 遮罩黑點位置，由 JS 每分鐘切換 */
   }
   html, body {
     margin: 0; height: 100%;
@@ -66,13 +64,6 @@
   #count   { font-size: calc(var(--col) * 1.91); line-height: 1; }
   #recruit { display: flex; flex-direction: column; align-items: flex-end; gap: calc(var(--col) * 0.3);
              font-size: calc(var(--col) * 0.9); line-height: 1; }
-
-  /* 防殘影：每 2×2 像素遮一個點，每分鐘輪換位置（亮度保留 75%） */
-  #mask { position: fixed; top: 0; left: 0; width: 100%; height: calc(100vh / 6);
-          pointer-events: none;
-          background-image: conic-gradient(transparent 0 75%, #000 0);
-          background-size: calc(var(--px) * 2) calc(var(--px) * 2);
-          background-position: var(--mx) var(--my); }
 </style>
 </head>
 <body>
@@ -96,7 +87,6 @@
       <div id="recruit"><div class="zh">國軍人才招募專線</div><div>0800-000-050</div></div>
     </div>
   </div>
-  <div id="mask"></div>
 
 <script>
   const EXAM = new Date(2027, 0, 22);   // 116 學測第一天
@@ -171,19 +161,6 @@
   }
   tick();
   setInterval(tick, 1000);
-
-  // 防殘影：2×2 格子裡的黑點依序 右下 → 左下 → 右上 → 左上，每分鐘換一次
-  const SPOTS = [[1,1],[0,1],[1,0],[0,0]];
-  function checker() {
-    const px = 1 / window.devicePixelRatio;
-    const [x, y] = SPOTS[Math.floor(Date.now() / 60000) % 4];
-    const root = document.documentElement.style;
-    root.setProperty('--px', px + 'px');
-    root.setProperty('--mx', x * px + 'px');
-    root.setProperty('--my', y * px + 'px');
-  }
-  checker();
-  setInterval(checker, 1000);
 
   // 點擊畫面或按 F 切換全螢幕
   function toggleFS() {
